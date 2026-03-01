@@ -4,9 +4,26 @@ from __future__ import annotations
 
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 
 from src.bot.services.tracker import TrackerService
+
+
+def _main_keyboard() -> ReplyKeyboardMarkup:
+    """Primary reply keyboard with quick actions."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="+5"), KeyboardButton(text="+10")],
+            [KeyboardButton(text="+15"), KeyboardButton(text="+30")],
+            [
+                KeyboardButton(text="/day"),
+                KeyboardButton(text="/week"),
+                KeyboardButton(text="/month"),
+            ],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
 
 
 def build_common_router(tracker: TrackerService) -> Router:
@@ -18,12 +35,13 @@ def build_common_router(tracker: TrackerService) -> Router:
         help_text = (
             "Привет! Я считаю минуты медитации.\n\n"
             "Отправляй `+5`, `+15` или просто `10`.\n"
+            "Можно пользоваться кнопками снизу.\n"
             "Команды:\n"
             "/day - итоги за день\n"
             "/week - итоги за неделю\n"
             "/month - итоги за месяц"
         )
-        await message.answer(help_text)
+        await message.answer(help_text, reply_markup=_main_keyboard())
 
     @router.message(Command("help"))
     async def on_help(message: Message) -> None:
