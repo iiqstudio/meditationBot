@@ -1,0 +1,22 @@
+[Unit]
+Description=Meditation Tracker Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=__APP_USER__
+WorkingDirectory=__APP_DIR__
+EnvironmentFile=__ENV_FILE__
+ExecStart=__APP_DIR__/.venv/bin/python -m src.bot.main
+Restart=always
+RestartSec=5
+
+# Security hardening (safe defaults)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=__APP_DIR__ __SHARED_DIR__
+
+[Install]
+WantedBy=multi-user.target
