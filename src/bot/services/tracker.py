@@ -74,6 +74,7 @@ class TrackerService:
             normalized = self._normalize_username(username)
             if normalized in self._user_labels_by_username:
                 return self._user_labels_by_username[normalized]
+            return f"@{normalized}"
 
         if fallback:
             return fallback
