@@ -11,6 +11,7 @@ from src.bot.db.repository import MeditationRepository
 from src.bot.utils.date_ranges import day_bounds, week_bounds
 
 Period = Literal["day", "week", "month"]
+ReportScope = Literal["chat", "global"]
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class TrackerService:
         user_labels: dict[int, str],
         user_labels_by_username: dict[str, str],
         max_entry_minutes: int,
+        report_scope: ReportScope,
     ) -> None:
         self._repository = repository
         self._tz = ZoneInfo(timezone_name)
@@ -42,6 +44,7 @@ class TrackerService:
             self._normalize_username(k): v for k, v in user_labels_by_username.items()
         }
         self._max_entry_minutes = max_entry_minutes
+        self._report_scope = report_scope
 
     def is_allowed_user(self, user_id: int, username: str | None = None) -> bool:
         """Check if user can submit entries."""
@@ -96,8 +99,13 @@ class TrackerService:
         now_utc = datetime.now(timezone.utc)
         await self._repository.add_minutes(chat_id, user_id, username, minutes, now_utc)
 
-        start_utc, end_utc = self._period_bounds_utc("day", now_utc, offset=0)
-        today_total = await self._repository.get_user_total(chat_id, user_id, start_utc, end_utc)
+        start_utc, end_utc = self.get_period_bounds_utc("day", offset=0, now_utc=now_utc)
+        today_total = await self._repository.get_user_total(
+            user_id=user_id,
+            start_utc=start_utc,
+            end_utc=end_utc,
+            chat_id=self._scope_chat_id(chat_id),
+        )
         return AddMinutesResult(user_id=user_id, added_minutes=minutes, today_total=today_total)
 
     async def get_daily_text_report(self, chat_id: int, offset_days: int = 0) -> str:
@@ -112,16 +120,46 @@ class TrackerService:
     async def get_period_text_report(self, chat_id: int, period: Period, offset: int = 0) -> str:
         return await self._period_text_report(chat_id=chat_id, period=period, offset=offset)
 
-    async def get_active_chat_ids(self, period: Period, offset: int = 0) -> list[int]:
-        """Return chats with entries in the requested period."""
+    async def get_recipient_chat_ids(self, period: Period, offset: int = 0) -> list[int]:
+        """Return recipient chats for scheduled reports."""
+        if self._report_scope == "global":
+            known_chat_ids = await self._repository.get_known_chat_ids(
+                user_ids=self._tracked_user_ids,
+                usernames=self._tracked_usernames,
+            )
+            if known_chat_ids:
+                return known_chat_ids
+
         now_utc = datetime.now(timezone.utc)
-        start_utc, end_utc = self._period_bounds_utc(period, now_utc, offset=offset)
-        return await self._repository.get_chat_ids_with_activity(start_utc, end_utc)
+        start_utc, end_utc = self.get_period_bounds_utc(period, offset=offset, now_utc=now_utc)
+        return await self._repository.get_chat_ids_with_activity(start_utc=start_utc, end_utc=end_utc)
+
+    async def mark_period_report_sent_if_new(self, period: Period, offset: int = 0) -> bool:
+        """Return True only if this period report was not sent before."""
+        start_utc, _ = self.get_period_bounds_utc(period=period, offset=offset)
+        return await self._repository.mark_period_report_sent(
+            report_kind=period,
+            period_start_utc=start_utc,
+        )
+
+    def get_period_bounds_utc(
+        self,
+        period: Period,
+        offset: int,
+        now_utc: datetime | None = None,
+    ) -> tuple[datetime, datetime]:
+        """Public period bounds helper used by reporting and scheduler."""
+        base_utc = now_utc or datetime.now(timezone.utc)
+        return self._period_bounds_utc(period=period, now_utc=base_utc, offset=offset)
 
     async def _period_text_report(self, chat_id: int, period: Period, offset: int) -> str:
         now_utc = datetime.now(timezone.utc)
         start_utc, end_utc = self._period_bounds_utc(period, now_utc, offset=offset)
-        rows = await self._repository.get_summary(chat_id, start_utc, end_utc)
+        rows = await self._repository.get_summary(
+            start_utc=start_utc,
+            end_utc=end_utc,
+            chat_id=self._scope_chat_id(chat_id),
+        )
 
         totals = {row.user_id: row.minutes for row in rows}
         usernames_by_id = {row.user_id: row.username for row in rows}
@@ -174,6 +212,11 @@ class TrackerService:
             start_local, end_local = _month_bounds_with_offset(now_local, offset)
 
         return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
+
+    def _scope_chat_id(self, chat_id: int) -> int | None:
+        if self._report_scope == "chat":
+            return chat_id
+        return None
 
     @staticmethod
     def _normalize_username(value: str) -> str:

@@ -53,6 +53,17 @@ class MeditationRepository:
                 ON meditation_entries(user_id, created_at)
                 """
             )
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sent_reports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    report_kind TEXT NOT NULL,
+                    period_start_utc TEXT NOT NULL,
+                    sent_at_utc TEXT NOT NULL,
+                    UNIQUE(report_kind, period_start_utc)
+                )
+                """
+            )
             await db.commit()
 
     async def _ensure_username_column(self, db: aiosqlite.Connection) -> None:
@@ -83,56 +94,58 @@ class MeditationRepository:
 
     async def get_summary(
         self,
-        chat_id: int,
         start_utc: datetime,
         end_utc: datetime,
+        chat_id: int | None = None,
     ) -> list[UserSummary]:
         """Return minutes grouped by user for the given [start, end) range."""
+        where = ["created_at >= ?", "created_at < ?"]
+        params: list[object] = [_to_utc_iso(start_utc), _to_utc_iso(end_utc)]
+
+        if chat_id is not None:
+            where.append("chat_id = ?")
+            params.append(chat_id)
+
+        query = f"""
+            SELECT
+                user_id,
+                SUM(minutes) AS total_minutes,
+                NULLIF(MAX(COALESCE(username, '')), '') AS username
+            FROM meditation_entries
+            WHERE {' AND '.join(where)}
+            GROUP BY user_id
+            ORDER BY user_id
+        """
+
         async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
-                """
-                SELECT
-                    user_id,
-                    SUM(minutes) AS total_minutes,
-                    NULLIF(MAX(COALESCE(username, '')), '') AS username
-                FROM meditation_entries
-                WHERE chat_id = ?
-                  AND created_at >= ?
-                  AND created_at < ?
-                GROUP BY user_id
-                ORDER BY user_id
-                """,
-                (chat_id, _to_utc_iso(start_utc), _to_utc_iso(end_utc)),
-            )
+            cursor = await db.execute(query, tuple(params))
             rows = await cursor.fetchall()
 
         return [UserSummary(user_id=row[0], minutes=row[1], username=row[2]) for row in rows]
 
     async def get_user_total(
         self,
-        chat_id: int,
         user_id: int,
         start_utc: datetime,
         end_utc: datetime,
+        chat_id: int | None = None,
     ) -> int:
         """Return aggregate minutes for a single user and [start, end) range."""
+        where = ["user_id = ?", "created_at >= ?", "created_at < ?"]
+        params: list[object] = [user_id, _to_utc_iso(start_utc), _to_utc_iso(end_utc)]
+
+        if chat_id is not None:
+            where.append("chat_id = ?")
+            params.append(chat_id)
+
+        query = f"""
+            SELECT COALESCE(SUM(minutes), 0)
+            FROM meditation_entries
+            WHERE {' AND '.join(where)}
+        """
+
         async with aiosqlite.connect(self._db_path) as db:
-            cursor = await db.execute(
-                """
-                SELECT COALESCE(SUM(minutes), 0)
-                FROM meditation_entries
-                WHERE chat_id = ?
-                  AND user_id = ?
-                  AND created_at >= ?
-                  AND created_at < ?
-                """,
-                (
-                    chat_id,
-                    user_id,
-                    _to_utc_iso(start_utc),
-                    _to_utc_iso(end_utc),
-                ),
-            )
+            cursor = await db.execute(query, tuple(params))
             row = await cursor.fetchone()
 
         return int(row[0]) if row else 0
@@ -157,6 +170,65 @@ class MeditationRepository:
             rows = await cursor.fetchall()
 
         return [int(row[0]) for row in rows]
+
+    async def get_known_chat_ids(
+        self,
+        user_ids: tuple[int, ...],
+        usernames: tuple[str, ...],
+    ) -> list[int]:
+        """Return chat ids where tracked users ever interacted with the bot."""
+        where_clauses: list[str] = []
+        params: list[object] = []
+
+        if user_ids:
+            placeholders = ",".join(["?"] * len(user_ids))
+            where_clauses.append(f"user_id IN ({placeholders})")
+            params.extend(user_ids)
+
+        normalized_usernames = tuple(v.strip().lower() for v in usernames if v.strip())
+        if normalized_usernames:
+            placeholders = ",".join(["?"] * len(normalized_usernames))
+            where_clauses.append(f"LOWER(COALESCE(username, '')) IN ({placeholders})")
+            params.extend(normalized_usernames)
+
+        where_sql = ""
+        if where_clauses:
+            where_sql = "WHERE " + " OR ".join(where_clauses)
+
+        query = f"""
+            SELECT DISTINCT chat_id
+            FROM meditation_entries
+            {where_sql}
+            ORDER BY chat_id
+        """
+
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(query, tuple(params))
+            rows = await cursor.fetchall()
+
+        return [int(row[0]) for row in rows]
+
+    async def mark_period_report_sent(
+        self,
+        report_kind: str,
+        period_start_utc: datetime,
+    ) -> bool:
+        """Mark scheduled report as sent; returns True only for first successful mark."""
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                INSERT OR IGNORE INTO sent_reports(report_kind, period_start_utc, sent_at_utc)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    report_kind,
+                    _to_utc_iso(period_start_utc),
+                    _to_utc_iso(datetime.now(timezone.utc)),
+                ),
+            )
+            await db.commit()
+
+        return cursor.rowcount > 0
 
 
 def _to_utc_iso(value: datetime) -> str:

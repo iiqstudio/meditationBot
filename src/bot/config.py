@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 
 ReportPeriod = Literal["day", "week", "month"]
+ReportScope = Literal["chat", "global"]
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class Settings:
     db_path: str
     report_time: time
     report_period: ReportPeriod
+    report_scope: ReportScope
     report_weekday: int
     monthly_report_enabled: bool
     monthly_report_time: time
@@ -137,6 +139,13 @@ def _parse_report_period(value: str) -> ReportPeriod:
     return normalized  # type: ignore[return-value]
 
 
+def _parse_report_scope(value: str) -> ReportScope:
+    normalized = value.strip().lower()
+    if normalized not in {"chat", "global"}:
+        raise ValueError("REPORT_SCOPE must be one of: chat, global.")
+    return normalized  # type: ignore[return-value]
+
+
 def load_settings() -> Settings:
     """Load and validate settings from environment."""
     load_dotenv()
@@ -163,6 +172,7 @@ def load_settings() -> Settings:
     report_time = _parse_time_hhmm(report_time_raw)
 
     report_period = _parse_report_period(os.getenv("AUTO_REPORT_PERIOD", "day"))
+    report_scope = _parse_report_scope(os.getenv("REPORT_SCOPE", "global"))
 
     report_weekday_raw = os.getenv("AUTO_REPORT_WEEKDAY", "0")
     report_weekday = int(report_weekday_raw)
@@ -193,6 +203,7 @@ def load_settings() -> Settings:
         db_path=db_path,
         report_time=report_time,
         report_period=report_period,
+        report_scope=report_scope,
         report_weekday=report_weekday,
         monthly_report_enabled=monthly_report_enabled,
         monthly_report_time=monthly_report_time,

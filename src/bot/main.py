@@ -30,8 +30,20 @@ async def _auto_report_loop(
     run_time_minute: int,
     weekly_weekday: int,
 ) -> None:
-    """Send periodic summary to chats where entries appeared in the target period."""
+    """Send periodic summary to recipient chats."""
     tz = ZoneInfo(timezone_name)
+    period_offset = _scheduled_period_offset(period)
+
+    # Catch up if the bot starts later on the exact scheduled day.
+    now_local = datetime.now(tz)
+    if _should_catch_up_on_start(
+        now_local=now_local,
+        period=period,
+        run_hour=run_time_hour,
+        run_minute=run_time_minute,
+        weekly_weekday=weekly_weekday,
+    ):
+        await _send_scheduled_report(bot=bot, tracker=tracker, period=period, period_offset=period_offset)
 
     while True:
         now_local = datetime.now(tz)
@@ -46,32 +58,68 @@ async def _auto_report_loop(
         wait_seconds = (target_local - now_local).total_seconds()
         await asyncio.sleep(wait_seconds)
 
-        period_offset = _scheduled_period_offset(period)
-        chat_ids = await tracker.get_active_chat_ids(period=period, offset=period_offset)
+        await _send_scheduled_report(bot=bot, tracker=tracker, period=period, period_offset=period_offset)
 
-        if not chat_ids:
-            logger.info("Auto-report skipped: no chat activity for period=%s", period)
-            continue
 
-        for chat_id in chat_ids:
-            try:
-                report = await tracker.get_period_text_report(
-                    chat_id=chat_id,
-                    period=period,
-                    offset=period_offset,
-                )
-                await bot.send_message(chat_id=chat_id, text=report)
-            except TelegramBadRequest:
-                logger.exception("Failed to send auto-report to chat_id=%s", chat_id)
-            except Exception:
-                logger.exception("Unexpected error while sending auto-report")
+async def _send_scheduled_report(
+    bot: Bot,
+    tracker: TrackerService,
+    period: ReportPeriod,
+    period_offset: int,
+) -> None:
+    """Send one scheduled report batch once per period window."""
+    chat_ids = await tracker.get_recipient_chat_ids(period=period, offset=period_offset)
+    if not chat_ids:
+        logger.info("Auto-report skipped: no recipient chats for period=%s", period)
+        return
+
+    is_new_period = await tracker.mark_period_report_sent_if_new(period=period, offset=period_offset)
+    if not is_new_period:
+        logger.info(
+            "Auto-report skipped: period=%s offset=%s already sent",
+            period,
+            period_offset,
+        )
+        return
+
+    for chat_id in chat_ids:
+        try:
+            report = await tracker.get_period_text_report(
+                chat_id=chat_id,
+                period=period,
+                offset=period_offset,
+            )
+            await bot.send_message(chat_id=chat_id, text=report)
+        except TelegramBadRequest:
+            logger.exception("Failed to send auto-report to chat_id=%s", chat_id)
+        except Exception:
+            logger.exception("Unexpected error while sending auto-report")
 
 
 def _scheduled_period_offset(period: ReportPeriod) -> int:
-    """For weekly/monthly scheduled reports send closed previous period."""
+    """For weekly/monthly schedules send closed previous period."""
     if period in {"week", "month"}:
         return 1
     return 0
+
+
+def _should_catch_up_on_start(
+    now_local: datetime,
+    period: ReportPeriod,
+    run_hour: int,
+    run_minute: int,
+    weekly_weekday: int,
+) -> bool:
+    """Catch missed schedule when service starts later on the schedule day."""
+    scheduled_today = now_local.replace(hour=run_hour, minute=run_minute, second=0, microsecond=0)
+    if now_local < scheduled_today:
+        return False
+
+    if period == "day":
+        return True
+    if period == "week":
+        return now_local.weekday() == weekly_weekday
+    return now_local.day == 1
 
 
 def _next_run_datetime(
@@ -120,6 +168,7 @@ async def _run() -> None:
         user_labels=settings.user_labels,
         user_labels_by_username=settings.user_labels_by_username,
         max_entry_minutes=settings.max_entry_minutes,
+        report_scope=settings.report_scope,
     )
 
     bot = Bot(token=settings.bot_token)
@@ -132,8 +181,9 @@ async def _run() -> None:
     async def _startup(bot: Bot) -> None:
         nonlocal report_tasks
         logger.info(
-            "Bot startup complete. Primary auto-report: period=%s, time=%s, weekday=%s",
+            "Bot startup complete. Primary auto-report: period=%s, scope=%s, time=%s, weekday=%s",
             settings.report_period,
+            settings.report_scope,
             settings.report_time,
             settings.report_weekday,
         )

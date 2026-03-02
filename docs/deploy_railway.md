@@ -23,6 +23,7 @@
 - `USER_LABELS_BY_USERNAME` = `anastasiyaanastasia:Настя,ilayarr:Илья`
 - `TIMEZONE` = `Europe/Moscow`
 - `DB_PATH` = `/tmp/meditation.db`
+- `REPORT_SCOPE` = `global`
 - `AUTO_REPORT_PERIOD` = `week`
 - `AUTO_REPORT_WEEKDAY` = `0`
 - `AUTO_REPORT_TIME` = `08:00`
