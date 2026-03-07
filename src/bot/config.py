@@ -21,6 +21,8 @@ class Settings:
     bot_token: str
     allowed_user_ids: tuple[int, ...]
     allowed_usernames: tuple[str, ...]
+    admin_user_ids: tuple[int, ...]
+    admin_usernames: tuple[str, ...]
     user_labels: dict[int, str]
     user_labels_by_username: dict[str, str]
     timezone: str
@@ -156,6 +158,8 @@ def load_settings() -> Settings:
 
     allowed_user_ids = _parse_int_list(os.getenv("ALLOWED_USER_IDS", ""))
     allowed_usernames = _parse_username_list(os.getenv("ALLOWED_USERNAMES", ""))
+    admin_user_ids = _parse_int_list(os.getenv("ADMIN_USER_IDS", ""))
+    admin_usernames = _parse_username_list(os.getenv("ADMIN_USERNAMES", ""))
     user_labels = _parse_user_labels(os.getenv("USER_LABELS", ""))
     user_labels_by_username = _parse_user_labels_by_username(
         os.getenv("USER_LABELS_BY_USERNAME", "")
@@ -197,6 +201,8 @@ def load_settings() -> Settings:
         bot_token=bot_token,
         allowed_user_ids=allowed_user_ids,
         allowed_usernames=allowed_usernames,
+        admin_user_ids=admin_user_ids,
+        admin_usernames=admin_usernames,
         user_labels=user_labels,
         user_labels_by_username=user_labels_by_username,
         timezone=timezone,

@@ -20,6 +20,7 @@
 
 - `BOT_TOKEN` = токен бота
 - `ALLOWED_USERNAMES` = `anastasiyaanastasia,ilayarr`
+- `ADMIN_USERNAMES` = `ilayarr`
 - `USER_LABELS_BY_USERNAME` = `anastasiyaanastasia:Настя,ilayarr:Илья`
 - `TIMEZONE` = `Europe/Moscow`
 - `DB_PATH` = `/tmp/meditation.db`
@@ -40,7 +41,7 @@
 ## 5) Проверка
 1. Напиши боту `/start`.
 2. Отправь `+5` с каждого аккаунта.
-3. Проверь `/week` и `/month`.
+3. Проверь `/week`, `/month`, `/year`.
 
 ## 6) Обновления
 После изменений локально:

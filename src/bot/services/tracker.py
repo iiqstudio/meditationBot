@@ -32,6 +32,8 @@ class TrackerService:
         timezone_name: str,
         tracked_user_ids: tuple[int, ...],
         tracked_usernames: tuple[str, ...],
+        admin_user_ids: tuple[int, ...],
+        admin_usernames: tuple[str, ...],
         user_labels: dict[int, str],
         user_labels_by_username: dict[str, str],
         max_entry_minutes: int,
@@ -41,6 +43,8 @@ class TrackerService:
         self._tz = ZoneInfo(timezone_name)
         self._tracked_user_ids = tracked_user_ids
         self._tracked_usernames = tuple(self._normalize_username(v) for v in tracked_usernames)
+        self._admin_user_ids = admin_user_ids
+        self._admin_usernames = tuple(self._normalize_username(v) for v in admin_usernames)
         self._user_labels = user_labels
         self._user_labels_by_username = {
             self._normalize_username(k): v for k, v in user_labels_by_username.items()
@@ -63,6 +67,15 @@ class TrackerService:
             normalized = self._normalize_username(username)
             return normalized in self._tracked_usernames
 
+        return False
+
+    def is_admin_user(self, user_id: int, username: str | None = None) -> bool:
+        """Check whether user is allowed to perform destructive admin actions."""
+        if self._admin_user_ids and user_id in self._admin_user_ids:
+            return True
+        if self._admin_usernames and username:
+            normalized = self._normalize_username(username)
+            return normalized in self._admin_usernames
         return False
 
     def resolve_user_label(
@@ -137,25 +150,30 @@ class TrackerService:
 
         totals = {row.user_id: row.minutes for row in rows}
         usernames_by_id = {row.user_id: row.username for row in rows}
-        ordered_user_ids = self._ordered_user_ids(totals, usernames_by_id)
+        report_rows = self._build_report_rows(totals, usernames_by_id)
 
         out = io.StringIO()
         writer = csv.writer(out, delimiter=",")
-        writer.writerow(["user_id", "username", "display_name", "minutes", "formatted"])
+        writer.writerow(["user_id", "username", "display_name", "minutes", "formatted", "source"])
 
-        for user_id in ordered_user_ids:
-            username = usernames_by_id.get(user_id)
-            writer.writerow(
-                [
-                    user_id,
-                    username or "",
-                    self.resolve_user_label(user_id=user_id, username=username),
-                    totals.get(user_id, 0),
-                    format_minutes_ru(totals.get(user_id, 0)),
-                ]
-            )
+        for user_id, username, label, minutes, source in report_rows:
+            writer.writerow([user_id or "", username or "", label, minutes, format_minutes_ru(minutes), source])
 
         return out.getvalue().encode("utf-8")
+
+    async def export_full_backup_csv(self) -> bytes:
+        """Return complete raw export of all entries for backup before reset."""
+        rows = await self._repository.get_all_entries()
+        out = io.StringIO()
+        writer = csv.writer(out, delimiter=",")
+        writer.writerow(["created_at_utc", "chat_id", "user_id", "username", "minutes"])
+        for created_at, chat_id, user_id, username, minutes in rows:
+            writer.writerow([created_at, chat_id, user_id, username or "", minutes])
+        return out.getvalue().encode("utf-8")
+
+    async def reset_all_stats(self) -> int:
+        """Delete all stored statistics and return number of removed entries."""
+        return await self._repository.clear_all_data()
 
     async def get_recipient_chat_ids(self, period: Period, offset: int = 0) -> list[int]:
         """Return recipient chats for scheduled reports."""
@@ -200,19 +218,45 @@ class TrackerService:
 
         totals = {row.user_id: row.minutes for row in rows}
         usernames_by_id = {row.user_id: row.username for row in rows}
-        ordered_user_ids = self._ordered_user_ids(totals, usernames_by_id)
-
-        if not ordered_user_ids:
+        report_rows = self._build_report_rows(totals, usernames_by_id)
+        if not report_rows:
             period_name = _period_title(period, offset)
             return f"Пока нет записей за {period_name}."
 
         lines = [f"Итоги за {_period_title(period, offset)}:"]
-        for user_id in ordered_user_ids:
-            label = self.resolve_user_label(user_id=user_id, username=usernames_by_id.get(user_id))
-            minutes = totals.get(user_id, 0)
+        for _, _, label, minutes, _ in report_rows:
             lines.append(f"{label}: {format_minutes_ru(minutes)}!")
 
         return "\n".join(lines)
+
+    def _build_report_rows(
+        self,
+        totals: dict[int, int],
+        usernames_by_id: dict[int, str | None],
+    ) -> list[tuple[int | None, str | None, str, int, str]]:
+        """Build rows: user_id, username, label, minutes, source."""
+        rows: list[tuple[int | None, str | None, str, int, str]] = []
+
+        ordered_user_ids = self._ordered_user_ids(totals, usernames_by_id)
+        for user_id in ordered_user_ids:
+            username = usernames_by_id.get(user_id)
+            label = self.resolve_user_label(user_id=user_id, username=username)
+            rows.append((user_id, username, label, totals.get(user_id, 0), "db"))
+
+        present_usernames = {
+            self._normalize_username(v)
+            for v in usernames_by_id.values()
+            if v and v.strip()
+        }
+        existing_labels = {label for _, _, label, _, _ in rows}
+
+        for username in self._tracked_usernames:
+            label = self._user_labels_by_username.get(username, f"@{username}")
+            if username in present_usernames or label in existing_labels:
+                continue
+            rows.append((None, username, label, 0, "configured"))
+
+        return rows
 
     def _ordered_user_ids(self, totals: dict[int, int], usernames_by_id: dict[int, str | None]) -> list[int]:
         if self._tracked_user_ids:

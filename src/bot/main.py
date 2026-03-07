@@ -165,6 +165,8 @@ async def _run() -> None:
         timezone_name=settings.timezone,
         tracked_user_ids=settings.allowed_user_ids,
         tracked_usernames=settings.allowed_usernames,
+        admin_user_ids=settings.admin_user_ids,
+        admin_usernames=settings.admin_usernames,
         user_labels=settings.user_labels,
         user_labels_by_username=settings.user_labels_by_username,
         max_entry_minutes=settings.max_entry_minutes,

@@ -230,6 +230,33 @@ class MeditationRepository:
 
         return cursor.rowcount > 0
 
+    async def get_all_entries(self) -> list[tuple[str, int, int, str | None, int]]:
+        """Return all entries as raw rows for backup/export."""
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT created_at, chat_id, user_id, username, minutes
+                FROM meditation_entries
+                ORDER BY created_at ASC, id ASC
+                """
+            )
+            rows = await cursor.fetchall()
+
+        return [(row[0], int(row[1]), int(row[2]), row[3], int(row[4])) for row in rows]
+
+    async def clear_all_data(self) -> int:
+        """Delete all stats and sent report markers. Returns deleted entry count."""
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM meditation_entries")
+            row = await cursor.fetchone()
+            deleted_entries = int(row[0]) if row else 0
+
+            await db.execute("DELETE FROM meditation_entries")
+            await db.execute("DELETE FROM sent_reports")
+            await db.commit()
+
+        return deleted_entries
+
 
 def _to_utc_iso(value: datetime) -> str:
     """Normalize datetime to UTC ISO-8601 string."""

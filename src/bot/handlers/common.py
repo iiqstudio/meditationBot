@@ -113,4 +113,36 @@ def build_common_router(tracker: TrackerService) -> Router:
             caption=f"Экспорт за {year} год.",
         )
 
+    @router.message(Command("reset_all"))
+    async def on_reset_all(message: Message) -> None:
+        if message.from_user is None:
+            return
+
+        if not tracker.is_admin_user(
+            user_id=message.from_user.id,
+            username=message.from_user.username,
+        ):
+            await message.answer("Команда доступна только администратору.")
+            return
+
+        parts = (message.text or "").strip().split()
+        if len(parts) < 2 or parts[1].upper() != "CONFIRM":
+            await message.answer(
+                "Это удалит ВСЮ статистику.\n"
+                "Перед удалением отправлю backup CSV.\n\n"
+                "Для подтверждения отправь:\n"
+                "/reset_all CONFIRM"
+            )
+            return
+
+        backup_bytes = await tracker.export_full_backup_csv()
+        backup_name = f"meditation_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        await message.answer_document(
+            BufferedInputFile(backup_bytes, filename=backup_name),
+            caption="Backup перед полным сбросом статистики.",
+        )
+
+        deleted_entries = await tracker.reset_all_stats()
+        await message.answer(f"Готово. Статистика сброшена. Удалено записей: {deleted_entries}.")
+
     return router
