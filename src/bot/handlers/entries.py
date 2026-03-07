@@ -8,7 +8,7 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from src.bot.config import Settings
-from src.bot.services.tracker import TrackerService
+from src.bot.services.tracker import TrackerService, format_minutes_ru
 
 ENTRY_RE = re.compile(r"^\s*([+-]?\d+)\s*$")
 
@@ -60,10 +60,9 @@ def build_entry_router(settings: Settings, tracker: TrackerService) -> Router:
             username=username,
             fallback=message.from_user.full_name,
         )
-        sign = "+" if result.added_minutes > 0 else ""
         await message.answer(
-            f"Принято: {sign}{result.added_minutes} мин.\n"
-            f"{label}, сегодня: {result.today_total} минут."
+            f"Принято: {format_minutes_ru(result.added_minutes)}.\n"
+            f"{label}, сегодня: {format_minutes_ru(result.today_total)}."
         )
 
     return router

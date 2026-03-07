@@ -173,7 +173,7 @@ class TrackerService:
         for user_id in ordered_user_ids:
             label = self.resolve_user_label(user_id=user_id, username=usernames_by_id.get(user_id))
             minutes = totals.get(user_id, 0)
-            lines.append(f"{label}: {minutes} минут!")
+            lines.append(f"{label}: {format_minutes_ru(minutes)}!")
 
         return "\n".join(lines)
 
@@ -229,6 +229,19 @@ def _period_title(period: Period, offset: int) -> str:
     if period == "week":
         return "неделю" if offset == 0 else "предыдущую неделю"
     return "месяц" if offset == 0 else "предыдущий месяц"
+
+
+def format_minutes_ru(total_minutes: int) -> str:
+    """Format minutes as readable RU duration, e.g. 65 -> '1 ч. 5 мин.'."""
+    sign = "-" if total_minutes < 0 else ""
+    value = abs(total_minutes)
+    hours, minutes = divmod(value, 60)
+
+    if hours and minutes:
+        return f"{sign}{hours} ч. {minutes} мин."
+    if hours:
+        return f"{sign}{hours} ч."
+    return f"{sign}{minutes} мин."
 
 
 def _month_bounds_with_offset(now_local: datetime, offset: int) -> tuple[datetime, datetime]:
