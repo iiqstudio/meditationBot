@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import BufferedInputFile, KeyboardButton, Message, ReplyKeyboardMarkup
 
 from src.bot.services.tracker import TrackerService
 
@@ -20,6 +22,7 @@ def _main_keyboard() -> ReplyKeyboardMarkup:
                 KeyboardButton(text="/week"),
                 KeyboardButton(text="/month"),
             ],
+            [KeyboardButton(text="/year"), KeyboardButton(text="/export_year")],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -39,7 +42,9 @@ def build_common_router(tracker: TrackerService) -> Router:
             "Команды:\n"
             "/day - итоги за день\n"
             "/week - итоги за неделю\n"
-            "/month - итоги за месяц"
+            "/month - итоги за месяц\n"
+            "/year - итоги за год\n"
+            "/export_year - скачать CSV за год"
         )
         await message.answer(help_text, reply_markup=_main_keyboard())
 
@@ -79,5 +84,33 @@ def build_common_router(tracker: TrackerService) -> Router:
             return
         report = await tracker.get_monthly_text_report(chat_id=message.chat.id)
         await message.answer(report)
+
+    @router.message(Command("year"))
+    async def on_year(message: Message) -> None:
+        if message.from_user and not tracker.is_allowed_user(
+            user_id=message.from_user.id,
+            username=message.from_user.username,
+        ):
+            await message.answer("У тебя нет доступа к этому боту.")
+            return
+        report = await tracker.get_yearly_text_report(chat_id=message.chat.id)
+        await message.answer(report)
+
+    @router.message(Command("export_year"))
+    async def on_export_year(message: Message) -> None:
+        if message.from_user and not tracker.is_allowed_user(
+            user_id=message.from_user.id,
+            username=message.from_user.username,
+        ):
+            await message.answer("У тебя нет доступа к этому боту.")
+            return
+
+        csv_bytes = await tracker.get_year_csv(chat_id=message.chat.id)
+        year = datetime.now().year
+        filename = f"meditation_year_{year}.csv"
+        await message.answer_document(
+            BufferedInputFile(csv_bytes, filename=filename),
+            caption=f"Экспорт за {year} год.",
+        )
 
     return router

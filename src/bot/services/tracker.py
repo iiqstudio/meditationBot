@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -10,7 +12,7 @@ from zoneinfo import ZoneInfo
 from src.bot.db.repository import MeditationRepository
 from src.bot.utils.date_ranges import day_bounds, week_bounds
 
-Period = Literal["day", "week", "month"]
+Period = Literal["day", "week", "month", "year"]
 ReportScope = Literal["chat", "global"]
 
 
@@ -117,8 +119,43 @@ class TrackerService:
     async def get_monthly_text_report(self, chat_id: int, offset_months: int = 0) -> str:
         return await self.get_period_text_report(chat_id=chat_id, period="month", offset=offset_months)
 
+    async def get_yearly_text_report(self, chat_id: int, offset_years: int = 0) -> str:
+        return await self.get_period_text_report(chat_id=chat_id, period="year", offset=offset_years)
+
     async def get_period_text_report(self, chat_id: int, period: Period, offset: int = 0) -> str:
         return await self._period_text_report(chat_id=chat_id, period=period, offset=offset)
+
+    async def get_year_csv(self, chat_id: int, offset_years: int = 0) -> bytes:
+        """Return CSV export for year summary."""
+        now_utc = datetime.now(timezone.utc)
+        start_utc, end_utc = self._period_bounds_utc("year", now_utc, offset=offset_years)
+        rows = await self._repository.get_summary(
+            start_utc=start_utc,
+            end_utc=end_utc,
+            chat_id=self._scope_chat_id(chat_id),
+        )
+
+        totals = {row.user_id: row.minutes for row in rows}
+        usernames_by_id = {row.user_id: row.username for row in rows}
+        ordered_user_ids = self._ordered_user_ids(totals, usernames_by_id)
+
+        out = io.StringIO()
+        writer = csv.writer(out, delimiter=",")
+        writer.writerow(["user_id", "username", "display_name", "minutes", "formatted"])
+
+        for user_id in ordered_user_ids:
+            username = usernames_by_id.get(user_id)
+            writer.writerow(
+                [
+                    user_id,
+                    username or "",
+                    self.resolve_user_label(user_id=user_id, username=username),
+                    totals.get(user_id, 0),
+                    format_minutes_ru(totals.get(user_id, 0)),
+                ]
+            )
+
+        return out.getvalue().encode("utf-8")
 
     async def get_recipient_chat_ids(self, period: Period, offset: int = 0) -> list[int]:
         """Return recipient chats for scheduled reports."""
@@ -208,8 +245,10 @@ class TrackerService:
         elif period == "week":
             target_local = now_local - timedelta(weeks=offset)
             start_local, end_local = week_bounds(target_local)
-        else:
+        elif period == "month":
             start_local, end_local = _month_bounds_with_offset(now_local, offset)
+        else:
+            start_local, end_local = _year_bounds_with_offset(now_local, offset)
 
         return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
 
@@ -228,7 +267,9 @@ def _period_title(period: Period, offset: int) -> str:
         return "день" if offset == 0 else "предыдущий день"
     if period == "week":
         return "неделю" if offset == 0 else "предыдущую неделю"
-    return "месяц" if offset == 0 else "предыдущий месяц"
+    if period == "month":
+        return "месяц" if offset == 0 else "предыдущий месяц"
+    return "год" if offset == 0 else "предыдущий год"
 
 
 def format_minutes_ru(total_minutes: int) -> str:
@@ -259,4 +300,18 @@ def _month_bounds_with_offset(now_local: datetime, offset: int) -> tuple[datetim
 
     start = now_start.replace(year=target_year, month=target_month)
     end = now_start.replace(year=next_year, month=next_month)
+    return start, end
+
+
+def _year_bounds_with_offset(now_local: datetime, offset: int) -> tuple[datetime, datetime]:
+    start = now_local.replace(
+        year=now_local.year - offset,
+        month=1,
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    end = start.replace(year=start.year + 1)
     return start, end
