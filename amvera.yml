@@ -9,5 +9,5 @@ build:
   useCache: true
 
 run:
-  command: python src/bot/main.py
+  command: PYTHONPATH=. python src/bot/main.py
   persistenceMount: /data
