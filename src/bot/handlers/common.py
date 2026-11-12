@@ -15,14 +15,14 @@ def _main_keyboard() -> ReplyKeyboardMarkup:
     """Primary reply keyboard with quick actions."""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="+5"), KeyboardButton(text="+10")],
-            [KeyboardButton(text="+15"), KeyboardButton(text="+30"), KeyboardButton(text="+60")],
+            [KeyboardButton(text="+5 🧘"), KeyboardButton(text="+10 🧘")],
+            [KeyboardButton(text="+15 🧘"), KeyboardButton(text="+30 🧘"), KeyboardButton(text="+60 🧘")],
             [
-                KeyboardButton(text="/day"),
-                KeyboardButton(text="/week"),
-                KeyboardButton(text="/month"),
+                KeyboardButton(text="/day ☀️"),
+                KeyboardButton(text="/week 📅"),
+                KeyboardButton(text="/month 🗓️"),
             ],
-            [KeyboardButton(text="/year"), KeyboardButton(text="/export_year")],
+            [KeyboardButton(text="/year 📊"), KeyboardButton(text="/export_year 📥")],
         ],
         resize_keyboard=True,
         is_persistent=True,
