@@ -10,7 +10,7 @@ from aiogram.types import Message
 from src.bot.config import Settings
 from src.bot.services.tracker import TrackerService, format_minutes_ru
 
-ENTRY_RE = re.compile(r"^\s*([+-]?\d+)(?:\s+🧘)?\s*$")
+ENTRY_RE = re.compile(r"^\s*([+-]?\d+)(?:\s+(?:🧘|⏱️|⏳|🕒|🕰️|⏰))?\s*$")
 
 
 def build_entry_router(settings: Settings, tracker: TrackerService) -> Router:
