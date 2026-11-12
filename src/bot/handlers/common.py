@@ -16,7 +16,7 @@ def _main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="+5"), KeyboardButton(text="+10")],
-            [KeyboardButton(text="+15"), KeyboardButton(text="+30")],
+            [KeyboardButton(text="+15"), KeyboardButton(text="+30"), KeyboardButton(text="+60")],
             [
                 KeyboardButton(text="/day"),
                 KeyboardButton(text="/week"),
